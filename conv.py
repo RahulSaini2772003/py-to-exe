@@ -1,60 +1,68 @@
 import streamlit as st
+import subprocess
 import os
+import tempfile
+import shutil
 
-def select_file():
-    file_path = st.file_uploader("Select Python File", type=["py"])
-    if file_path is not None:
-        return file_path.name
-    return ""
-
-def select_icon():
-    icon_path = st.file_uploader("Select Icon File", type=["ico"])
-    if icon_path is not None:
-        return icon_path.name
-    return ""
-
-def select_output_dir():
-    return st.text_input("Output Directory", value=os.getcwd())
-
-def convert_to_exe(py_file, icon_file, output_dir, onefile, noconsole, clean):
-    if not py_file.endswith(".py"):
-        st.error("Please select a Python file (.py)")
-        return
-
-    output_name = os.path.splitext(os.path.basename(py_file))[0]
-
+# Define helper functions
+def convert_to_exe(py_file_path, output_dir, onefile, noconsole, icon_path, clean):
+    # Prepare PyInstaller command
     options = []
-
     if onefile:
         options.append("--onefile")
     if noconsole:
         options.append("--noconsole")
-    if icon_file:
-        options.append("--icon=" + icon_file)
+    if icon_path:
+        options.append(f"--icon={icon_path}")
     if clean:
         options.append("--clean")
-
+    
     options_str = " ".join(options)
-    command = f"pyinstaller {options_str} {py_file}"
-    st.write(f"Command: {command}")
+    command = f"pyinstaller {options_str} --distpath {output_dir} {py_file_path}"
+    
+    # Execute the command
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    
+    if result.returncode == 0:
+        return os.path.join(output_dir, os.path.splitext(os.path.basename(py_file_path))[0] + ".exe")
+    else:
+        st.error(f"Error during conversion:\n{result.stderr}")
+        return None
 
-    os.chdir(output_dir)
-    os.system(command)
-    os.chdir(os.path.dirname(__file__))
+# Streamlit UI
+st.title("Python to EXE Converter")
 
-    st.success("Conversion completed!")
+# File upload
+uploaded_file = st.file_uploader("Upload your Python (.py) file", type="py")
+if uploaded_file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".py") as temp_file:
+        temp_file.write(uploaded_file.read())
+        temp_file_path = temp_file.name
 
-st.title(".PY to .EXE Converter")
+    st.write("Python file uploaded successfully.")
 
-py_file = select_file()
-output_dir = select_output_dir()
+    # Options
+    st.sidebar.header("Options")
+    onefile = st.sidebar.checkbox("One File", value=True)
+    noconsole = st.sidebar.checkbox("No Console")
+    icon_file = st.sidebar.file_uploader("Upload an Icon File (.ico)", type="ico")
+    clean = st.sidebar.checkbox("Clean Build", value=True)
 
-st.write("Options:")
-onefile = st.checkbox("One File", value=True)
-noconsole = st.checkbox("No Console", value=False)
-clean = st.checkbox("Clean Build", value=True)
+    if icon_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ico") as temp_icon_file:
+            temp_icon_file.write(icon_file.read())
+            icon_path = temp_icon_file.name
+    else:
+        icon_path = None
 
-icon_file = select_icon()
-
-if st.button("Convert to .exe"):
-    convert_to_exe(py_file, icon_file, output_dir, onefile, noconsole, clean)
+    if st.button("Convert to EXE"):
+        with tempfile.TemporaryDirectory() as temp_output_dir:
+            exe_path = convert_to_exe(temp_file_path, temp_output_dir, onefile, noconsole, icon_path, clean)
+            if exe_path:
+                with open(exe_path, "rb") as f:
+                    st.download_button(
+                        label="Download EXE",
+                        data=f,
+                        file_name=os.path.basename(exe_path),
+                        mime="application/x-msdownload"
+                    )
